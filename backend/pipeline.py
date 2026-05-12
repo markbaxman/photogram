@@ -171,20 +171,31 @@ def _ply_to_obj(job: Job, ply_path: Path, out_dir: Path) -> tuple[Path, Path]:
 
 async def run_pipeline(job_id: str) -> None:
     from .jobs import get_job
+    import sys
 
     job = get_job(job_id)
     if job is None:
-        print(f"Job {job_id} not found")
+        print(f"Job {job_id} not found", flush=True)
         return
 
-    print(f"[PIPELINE] Starting job {job_id}")
+    msg = f"[PIPELINE] Starting job {job_id}"
+    print(msg, flush=True)
+    with open(f"/tmp/pipeline_{job_id}.log", "a") as f:
+        f.write(msg + "\n")
+
     loop = asyncio.get_event_loop()
 
     try:
         await loop.run_in_executor(None, _run_pipeline_sync, job)
-        print(f"[PIPELINE] Job {job_id} completed successfully")
+        msg = f"[PIPELINE] Job {job_id} completed successfully"
+        print(msg, flush=True)
+        with open(f"/tmp/pipeline_{job_id}.log", "a") as f:
+            f.write(msg + "\n")
     except Exception as exc:
-        print(f"[PIPELINE] Job {job_id} failed: {exc}")
+        msg = f"[PIPELINE] Job {job_id} failed: {exc}"
+        print(msg, flush=True)
+        with open(f"/tmp/pipeline_{job_id}.log", "a") as f:
+            f.write(msg + "\n")
         update_job(
             job_id,
             status=JobStatus.FAILED,
@@ -197,7 +208,12 @@ async def run_pipeline(job_id: str) -> None:
 def _run_pipeline_sync(job: Job) -> None:
     import shutil
 
-    print(f"[_run_pipeline_sync] Starting for job {job.job_id}")
+    def log(msg):
+        print(msg, flush=True)
+        with open(f"/tmp/pipeline_{job.job_id}.log", "a") as f:
+            f.write(msg + "\n")
+
+    log(f"[_run_pipeline_sync] Starting for job {job.job_id}")
 
     work_dir = job.work_dir
     images_dir = work_dir / "images"
@@ -210,7 +226,7 @@ def _run_pipeline_sync(job: Job) -> None:
     colmap_path = shutil.which(COLMAP_BIN)
     if not colmap_path:
         raise RuntimeError(f"COLMAP binary not found: {COLMAP_BIN}")
-    print(f"[COLMAP] Using binary: {colmap_path}")
+    log(f"[COLMAP] Using binary: {colmap_path}")
 
     # Test that COLMAP runs
     try:
@@ -250,7 +266,7 @@ def _run_pipeline_sync(job: Job) -> None:
 
     image_count = _count_images(images_dir)
     image_files = list(images_dir.glob("*.jpg")) + list(images_dir.glob("*.jpeg")) + list(images_dir.glob("*.png"))
-    print(f"[FEATURE_EXTRACT] Found {image_count} images in {images_dir}")
+    log(f"[FEATURE_EXTRACT] Found {image_count} images in {images_dir}")
 
     if image_count == 0:
         raise RuntimeError(f"No images found in {images_dir}")
