@@ -28,14 +28,16 @@ def _run_colmap_step(
     process = subprocess.Popen(
         args,
         stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
+        stderr=subprocess.PIPE,
         text=True,
         bufsize=1,
     )
 
     line_count = 0
+    output_lines = []
     for line in process.stdout:
         line = line.rstrip()
+        output_lines.append(line)
         if log_parser:
             log_parser(line, job, start_pct, end_pct)
         else:
@@ -46,7 +48,14 @@ def _run_colmap_step(
 
     process.wait()
     if process.returncode != 0:
-        raise RuntimeError(f"{step_name} failed with exit code {process.returncode}")
+        stderr = process.stderr.read() if process.stderr else ""
+        last_output = "\n".join(output_lines[-10:]) if output_lines else "(no output)"
+        error_msg = f"{step_name} failed with exit code {process.returncode}"
+        if stderr:
+            error_msg += f"\nStderr: {stderr[-500:]}"
+        if last_output != "(no output)":
+            error_msg += f"\nLast output:\n{last_output}"
+        raise RuntimeError(error_msg)
 
     update_job(job.job_id, progress=end_pct)
 
@@ -189,7 +198,8 @@ def _run_pipeline_sync(job: Job) -> None:
             COLMAP_BIN, "feature_extractor",
             "--database_path", str(db_path),
             "--image_path", str(images_dir),
-            "--ImageReader.single_camera", "true",
+            "--ImageReader.single_camera", "1",
+            "--SiftExtraction.use_gpu", "0",
         ],
         (10, 25),
         log_parser=_parse_feature_progress,
