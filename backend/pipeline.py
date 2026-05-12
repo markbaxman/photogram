@@ -30,40 +30,41 @@ def _run_colmap_step(
 
     logger.info(f"Running {step_name}: {' '.join(args)}")
 
+    # Create log files to capture output even if process crashes
+    work_dir = job.work_dir
+    log_file = work_dir / f"{step_name}.log"
+
     try:
-        result = subprocess.run(
-            args,
-            capture_output=True,
-            text=True,
-            check=False,
-            timeout=600,
-        )
+        with open(log_file, 'w') as logf:
+            result = subprocess.run(
+                args,
+                stdout=logf,
+                stderr=subprocess.STDOUT,
+                text=True,
+                check=False,
+                timeout=600,
+            )
+
+        # Read the log file to parse output
+        log_content = log_file.read_text()
+        output_lines = log_content.split('\n')
 
         # Parse output lines if log_parser is provided
-        if log_parser and result.stdout:
-            output_lines = result.stdout.split('\n')
+        if log_parser:
             for line in output_lines:
                 if line.strip():
                     log_parser(line, job, start_pct, end_pct)
-        elif result.stdout:
-            lines = result.stdout.split('\n')
-            if lines:
-                update_job(job.job_id, progress=(start_pct + end_pct) // 2)
+        elif output_lines:
+            update_job(job.job_id, progress=(start_pct + end_pct) // 2)
 
         if result.returncode != 0:
             error_msg = f"{step_name} failed with exit code {result.returncode}"
 
-            if result.stderr:
-                stderr_lines = result.stderr.split('\n')
-                stderr_text = "\n".join(stderr_lines[-20:])
-                if stderr_text.strip():
-                    error_msg += f"\nStderr:\n{stderr_text}"
-
-            if result.stdout:
-                output_lines = result.stdout.split('\n')
-                last_output = "\n".join(output_lines[-10:])
-                if last_output.strip():
-                    error_msg += f"\nLast stdout:\n{last_output}"
+            last_output = "\n".join(output_lines[-20:])
+            if last_output.strip():
+                error_msg += f"\nOutput:\n{last_output}"
+            else:
+                error_msg += "\n(no output captured - process may have crashed)"
 
             raise RuntimeError(error_msg)
 
