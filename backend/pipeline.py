@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import re
 import subprocess
 import time
@@ -9,6 +10,8 @@ import trimesh
 
 from .config import COLMAP_BIN, FFMPEG_BIN, FRAME_FPS, HAS_NVIDIA
 from .jobs import Job, JobStatus, update_job
+
+logger = logging.getLogger(__name__)
 
 
 def _count_images(images_dir: Path) -> int:
@@ -24,6 +27,8 @@ def _run_colmap_step(
 ) -> None:
     start_pct, end_pct = progress_range
     update_job(job.job_id, progress=start_pct, message=f"{job.message}")
+
+    logger.info(f"Running {step_name}: {' '.join(args)}")
 
     process = subprocess.Popen(
         args,
@@ -174,12 +179,20 @@ async def run_pipeline(job_id: str) -> None:
 
 
 def _run_pipeline_sync(job: Job) -> None:
+    import shutil
+
     work_dir = job.work_dir
     images_dir = work_dir / "images"
     db_path = work_dir / "database.db"
     sparse_dir = work_dir / "sparse"
     dense_dir = work_dir / "dense"
     output_dir = work_dir / "output"
+
+    # Verify COLMAP binary exists
+    colmap_path = shutil.which(COLMAP_BIN)
+    if not colmap_path:
+        raise RuntimeError(f"COLMAP binary not found: {COLMAP_BIN}")
+    logger.info(f"Using COLMAP binary: {colmap_path}")
 
     sparse_dir.mkdir(parents=True, exist_ok=True)
     dense_dir.mkdir(parents=True, exist_ok=True)
@@ -205,6 +218,14 @@ def _run_pipeline_sync(job: Job) -> None:
 
     # Step 1: Feature extraction (10→25)
     update_job(job.job_id, status=JobStatus.FEATURES)
+
+    # Log image directory info
+    image_count = _count_images(images_dir)
+    image_files = list(images_dir.glob("*.jpg")) + list(images_dir.glob("*.jpeg")) + list(images_dir.glob("*.png"))
+    logger.info(f"Feature extraction: {image_count} images found in {images_dir}")
+    if image_files:
+        logger.info(f"First image: {image_files[0].name} ({image_files[0].stat().st_size} bytes)")
+
     _run_colmap_step(
         job,
         "feature_extractor",
