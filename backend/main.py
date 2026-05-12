@@ -101,6 +101,7 @@ async def upload(
     else:
         raise HTTPException(400, "Provide either 'video' or 'files'")
 
+    print(f"[UPLOAD] Created job {job.job_id}, starting pipeline task")
     asyncio.create_task(run_pipeline(job.job_id))
     return JSONResponse({"job_id": job.job_id})
 
