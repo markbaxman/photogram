@@ -3,3 +3,4 @@ uvicorn[standard]==0.29.0
 python-multipart==0.0.9
 trimesh[easy]==4.3.2
 aiofiles==23.2.1
+Pillow==10.0.0

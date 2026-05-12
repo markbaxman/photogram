@@ -115,6 +115,16 @@ def _extract_frames(job: Job, source_path: Path) -> Path:
             "Try uploading a longer video or use image mode."
         )
 
+    # Validate that at least one extracted image is readable
+    try:
+        from PIL import Image
+        img_files = list(images_dir.glob("*.jpg")) + list(images_dir.glob("*.jpeg"))
+        if img_files:
+            img = Image.open(str(img_files[0]))
+            img.verify()
+    except Exception as e:
+        raise RuntimeError(f"Extracted images may be corrupted: {e}")
+
     update_job(job.job_id, progress=10, message=f"Extracted {count} frames")
     return images_dir
 
