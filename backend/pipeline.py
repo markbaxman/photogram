@@ -231,12 +231,29 @@ def _run_pipeline_sync(job: Job) -> None:
     # Step 1: Feature extraction (10→25)
     update_job(job.job_id, status=JobStatus.FEATURES)
 
-    # Log image directory info
+    # Validate before feature extraction
+    if not images_dir.exists():
+        raise RuntimeError(f"Images directory does not exist: {images_dir}")
+
     image_count = _count_images(images_dir)
     image_files = list(images_dir.glob("*.jpg")) + list(images_dir.glob("*.jpeg")) + list(images_dir.glob("*.png"))
     logger.info(f"Feature extraction: {image_count} images found in {images_dir}")
+
+    if image_count == 0:
+        raise RuntimeError(f"No images found in {images_dir}")
+
     if image_files:
         logger.info(f"First image: {image_files[0].name} ({image_files[0].stat().st_size} bytes)")
+        try:
+            from PIL import Image
+            img = Image.open(str(image_files[0]))
+            img.verify()
+            logger.info(f"First image validation: OK (size {img.width}x{img.height})")
+        except Exception as e:
+            logger.warning(f"Could not verify image: {e}")
+
+    if not db_path.parent.exists():
+        raise RuntimeError(f"Work directory does not exist: {db_path.parent}")
 
     _run_colmap_step(
         job,
