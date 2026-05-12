@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Photogram — Room 3D Scanner</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0f1117;
+      color: #e2e8f0;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 40px 20px;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 40px;
+    }
+
+    header h1 {
+      font-size: 2rem;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      color: #f8fafc;
+    }
+
+    header p {
+      margin-top: 8px;
+      color: #94a3b8;
+      font-size: 0.95rem;
+    }
+
+    .card {
+      background: #1e2330;
+      border: 1px solid #2d3548;
+      border-radius: 16px;
+      padding: 32px;
+      width: 100%;
+      max-width: 600px;
+    }
+
+    .tips {
+      background: #1a2535;
+      border: 1px solid #2a3f5f;
+      border-radius: 10px;
+      padding: 16px 20px;
+      margin-bottom: 28px;
+      font-size: 0.85rem;
+      color: #7dd3fc;
+      line-height: 1.7;
+    }
+
+    .tips strong {
+      display: block;
+      color: #38bdf8;
+      margin-bottom: 6px;
+      font-size: 0.9rem;
+    }
+
+    .drop-zone {
+      border: 2px dashed #374151;
+      border-radius: 12px;
+      padding: 40px 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+      position: relative;
+    }
+
+    .drop-zone:hover, .drop-zone.drag-over {
+      border-color: #3b82f6;
+      background: #1a2540;
+    }
+
+    .drop-zone input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+      width: 100%;
+      height: 100%;
+    }
+
+    .drop-zone .icon {
+      font-size: 2.5rem;
+      margin-bottom: 12px;
+    }
+
+    .drop-zone p {
+      color: #94a3b8;
+      font-size: 0.9rem;
+      margin-top: 6px;
+    }
+
+    .drop-zone .file-count {
+      margin-top: 10px;
+      color: #60a5fa;
+      font-weight: 600;
+      font-size: 0.9rem;
+    }
+
+    .btn {
+      display: block;
+      width: 100%;
+      margin-top: 20px;
+      padding: 14px;
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .btn:hover:not(:disabled) { background: #1d4ed8; }
+    .btn:disabled { background: #334155; color: #64748b; cursor: not-allowed; }
+
+    /* Status panel */
+    #status-panel {
+      margin-top: 28px;
+    }
+
+    #status-panel[hidden] { display: none; }
+
+    .step-label {
+      font-size: 0.9rem;
+      color: #94a3b8;
+      margin-bottom: 10px;
+    }
+
+    .progress-track {
+      background: #2d3548;
+      border-radius: 99px;
+      height: 10px;
+      overflow: hidden;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #2563eb, #7c3aed);
+      border-radius: 99px;
+      transition: width 0.4s ease;
+      width: 0%;
+    }
+
+    .progress-pct {
+      text-align: right;
+      font-size: 0.8rem;
+      color: #64748b;
+      margin-top: 6px;
+    }
+
+    .error-msg {
+      margin-top: 16px;
+      background: #3b0f0f;
+      border: 1px solid #7f1d1d;
+      color: #fca5a5;
+      border-radius: 8px;
+      padding: 12px 16px;
+      font-size: 0.88rem;
+      line-height: 1.5;
+    }
+
+    .done-actions {
+      margin-top: 20px;
+      display: flex;
+      gap: 12px;
+    }
+
+    .done-actions a {
+      flex: 1;
+      display: block;
+      text-align: center;
+      padding: 12px;
+      border-radius: 10px;
+      font-weight: 600;
+      font-size: 0.95rem;
+      text-decoration: none;
+      transition: opacity 0.2s;
+    }
+
+    .done-actions a:hover { opacity: 0.85; }
+
+    .btn-view {
+      background: #7c3aed;
+      color: #fff;
+    }
+
+    .btn-download {
+      background: #0f766e;
+      color: #fff;
+    }
+
+    .btn-new {
+      margin-top: 12px;
+      padding: 10px;
+      background: transparent;
+      border: 1px solid #374151;
+      color: #94a3b8;
+      border-radius: 8px;
+      font-size: 0.88rem;
+      cursor: pointer;
+      width: 100%;
+      transition: border-color 0.2s, color 0.2s;
+    }
+
+    .btn-new:hover { border-color: #60a5fa; color: #60a5fa; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Photogram</h1>
+    <p>Upload a room walkthrough video or photos — get a 3D model</p>
+  </header>
+
+  <div class="card">
+    <div class="tips">
+      <strong>Tips for best results</strong>
+      Walk slowly and steadily &nbsp;&bull;&nbsp;
+      60–80% overlap between frames &nbsp;&bull;&nbsp;
+      Even lighting, no bright windows &nbsp;&bull;&nbsp;
+      Shoot 1080p or higher &nbsp;&bull;&nbsp;
+      Cover all walls, floor &amp; ceiling
+    </div>
+
+    <div class="drop-zone" id="drop-zone">
+      <input type="file" id="file-input" multiple accept="image/*,video/*">
+      <div class="icon">&#128247;</div>
+      <strong>Drop your video or photos here</strong>
+      <p>or click to browse &nbsp;&mdash;&nbsp; MP4, MOV, AVI or JPG/PNG images</p>
+      <div class="file-count" id="file-count"></div>
+    </div>
+
+    <button class="btn" id="upload-btn" disabled>Select files to start</button>
+
+    <div id="status-panel" hidden>
+      <div class="step-label" id="step-label">Starting...</div>
+      <div class="progress-track">
+        <div class="progress-fill" id="progress-fill"></div>
+      </div>
+      <div class="progress-pct" id="progress-pct">0%</div>
+
+      <div class="error-msg" id="error-msg" hidden></div>
+
+      <div class="done-actions" id="done-actions" hidden>
+        <a class="btn-view" id="view-btn" href="#">View 3D Room</a>
+        <a class="btn-download" id="download-btn" href="#">Download OBJ+MTL</a>
+      </div>
+
+      <button class="btn-new" id="new-btn" hidden>Start a new scan</button>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
