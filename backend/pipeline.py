@@ -30,51 +30,50 @@ def _run_colmap_step(
 
     logger.info(f"Running {step_name}: {' '.join(args)}")
 
-    process = subprocess.Popen(
-        args,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        bufsize=1,
-    )
-
-    line_count = 0
-    output_lines = []
     try:
-        for line in process.stdout:
-            line = line.rstrip()
-            output_lines.append(line)
-            if log_parser:
-                log_parser(line, job, start_pct, end_pct)
-            else:
-                line_count += 1
-                mid = (start_pct + end_pct) // 2
-                if line_count == 1:
-                    update_job(job.job_id, progress=mid)
+        result = subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=600,
+        )
+
+        # Parse output lines if log_parser is provided
+        if log_parser and result.stdout:
+            output_lines = result.stdout.split('\n')
+            for line in output_lines:
+                if line.strip():
+                    log_parser(line, job, start_pct, end_pct)
+        elif result.stdout:
+            lines = result.stdout.split('\n')
+            if lines:
+                update_job(job.job_id, progress=(start_pct + end_pct) // 2)
+
+        if result.returncode != 0:
+            error_msg = f"{step_name} failed with exit code {result.returncode}"
+
+            if result.stderr:
+                stderr_lines = result.stderr.split('\n')
+                stderr_text = "\n".join(stderr_lines[-20:])
+                if stderr_text.strip():
+                    error_msg += f"\nStderr:\n{stderr_text}"
+
+            if result.stdout:
+                output_lines = result.stdout.split('\n')
+                last_output = "\n".join(output_lines[-10:])
+                if last_output.strip():
+                    error_msg += f"\nLast stdout:\n{last_output}"
+
+            raise RuntimeError(error_msg)
+
+        update_job(job.job_id, progress=end_pct)
+
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"{step_name} timed out after 10 minutes")
     except Exception as e:
-        logger.error(f"Error reading stdout: {e}")
-        process.terminate()
-
-    # Read any remaining stderr before wait
-    stderr_lines = []
-    try:
-        if process.stderr:
-            stderr_lines = process.stderr.readlines()
-    except Exception as e:
-        logger.error(f"Error reading stderr: {e}")
-
-    returncode = process.wait()
-    if returncode != 0:
-        stderr_text = "".join(stderr_lines[-20:]) if stderr_lines else ""
-        last_output = "\n".join(output_lines[-10:]) if output_lines else "(no output)"
-        error_msg = f"{step_name} failed with exit code {returncode}"
-        if stderr_text:
-            error_msg += f"\nStderr:\n{stderr_text}"
-        if last_output != "(no output)":
-            error_msg += f"\nLast stdout:\n{last_output}"
-        raise RuntimeError(error_msg)
-
-    update_job(job.job_id, progress=end_pct)
+        logger.exception(f"Error running {step_name}: {e}")
+        raise
 
 
 def _parse_feature_progress(line: str, job: Job, start: int, end: int) -> None:
