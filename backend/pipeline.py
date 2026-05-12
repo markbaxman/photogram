@@ -28,9 +28,6 @@ def _run_colmap_step(
     start_pct, end_pct = progress_range
     update_job(job.job_id, progress=start_pct, message=f"{job.message}")
 
-    logger.info(f"Running {step_name}: {' '.join(args)}")
-
-    # Create log files to capture output even if process crashes
     work_dir = job.work_dir
     log_file = work_dir / f"{step_name}.log"
 
@@ -45,11 +42,9 @@ def _run_colmap_step(
                 timeout=600,
             )
 
-        # Read the log file to parse output
         log_content = log_file.read_text()
         output_lines = log_content.split('\n')
 
-        # Parse output lines if log_parser is provided
         if log_parser:
             for line in output_lines:
                 if line.strip():
@@ -58,14 +53,8 @@ def _run_colmap_step(
             update_job(job.job_id, progress=(start_pct + end_pct) // 2)
 
         if result.returncode != 0:
-            error_msg = f"{step_name} failed with exit code {result.returncode}"
-
-            last_output = "\n".join(output_lines[-20:])
-            if last_output.strip():
-                error_msg += f"\nOutput:\n{last_output}"
-            else:
-                error_msg += "\n(no output captured - process may have crashed)"
-
+            last_lines = "\n".join(output_lines[-30:])
+            error_msg = f"{step_name} failed with exit code {result.returncode}\n\nLast output:\n{last_lines}" if last_lines.strip() else f"{step_name} failed with exit code {result.returncode} (no output)"
             raise RuntimeError(error_msg)
 
         update_job(job.job_id, progress=end_pct)
@@ -73,7 +62,6 @@ def _run_colmap_step(
     except subprocess.TimeoutExpired:
         raise RuntimeError(f"{step_name} timed out after 10 minutes")
     except Exception as e:
-        logger.exception(f"Error running {step_name}: {e}")
         raise
 
 
