@@ -7,21 +7,14 @@ services:
       - "8000:8000"
     volumes:
       - photogram_jobs:/tmp/photogram_jobs
+      - ./backend:/app/backend
+      - ./frontend:/app/frontend
     environment:
       - WORK_DIR=/tmp/photogram_jobs
       - FRAME_FPS=1
       - JOB_TTL_SECS=3600
       - MAX_UPLOAD_MB=4096
     restart: unless-stopped
-
-    # Uncomment to enable GPU acceleration (requires nvidia-container-toolkit):
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all
-    #           capabilities: [gpu]
 
 volumes:
   photogram_jobs:
