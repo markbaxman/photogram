@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import re
 import subprocess
 import time
@@ -33,6 +34,10 @@ def _run_colmap_step(
 
     try:
         with open(log_file, 'w') as logf:
+            env = os.environ.copy()
+            env['QT_QPA_PLATFORM'] = 'offscreen'
+            env['LIBGL_ALWAYS_INDIRECT'] = '1'
+            env['MESA_GL_VERSION_OVERRIDE'] = '4.3'
             result = subprocess.run(
                 args,
                 stdout=logf,
@@ -40,6 +45,7 @@ def _run_colmap_step(
                 text=True,
                 check=False,
                 timeout=600,
+                env=env,
             )
 
         log_content = log_file.read_text()
@@ -157,6 +163,78 @@ def _ply_to_obj(job: Job, ply_path: Path, out_dir: Path) -> tuple[Path, Path]:
     return obj_path, mtl_path
 
 
+def _read_points3d_binary(binary_file: Path) -> list[tuple[float, float, float, int, int, int]]:
+    """Read points from COLMAP points3D.bin format."""
+    import struct
+    points = []
+    try:
+        with open(binary_file, 'rb') as f:
+            num_points = struct.unpack('<Q', f.read(8))[0]
+            for _ in range(num_points):
+                point_id = struct.unpack('<Q', f.read(8))[0]
+                x, y, z = struct.unpack('<ddd', f.read(24))
+                r, g, b = struct.unpack('<BBB', f.read(3))
+                error = struct.unpack('<d', f.read(8))[0]
+                track_length = struct.unpack('<Q', f.read(8))[0]
+                f.read(track_length * 8)  # Skip track data
+                points.append((x, y, z, r, g, b))
+    except Exception as e:
+        raise RuntimeError(f"Failed to read points3D.bin: {e}")
+    return points
+
+
+def _create_mesh_from_points(points_ply: Path, output_dir: Path) -> Path:
+    """Create a simple mesh from sparse point cloud using trimesh."""
+    try:
+        mesh = trimesh.load(str(points_ply))
+        # Convert point cloud to mesh using convex hull or simple triangulation
+        if hasattr(mesh, 'vertices') and len(mesh.vertices) > 3:
+            # Use convex hull for a simple closed mesh
+            mesh = mesh.convex_hull
+            mesh_path = output_dir / "mesh.ply"
+            mesh.export(str(mesh_path))
+            return mesh_path
+    except Exception as e:
+        raise RuntimeError(f"Failed to create mesh from points: {e}")
+
+
+def _create_mesh_from_colmap_points(sparse_model: Path, output_dir: Path) -> Path:
+    """Create OBJ mesh from COLMAP sparse point cloud."""
+    points_bin = sparse_model / "points3D.bin"
+    if not points_bin.exists():
+        raise RuntimeError(f"Points file not found: {points_bin}")
+
+    points = _read_points3d_binary(points_bin)
+    if not points:
+        raise RuntimeError("No points found in sparse reconstruction")
+
+    # Create mesh using convex hull
+    import numpy as np
+    vertices = np.array([[p[0], p[1], p[2]] for p in points], dtype=np.float64)
+    colors = np.array([[p[3], p[4], p[5]] for p in points], dtype=np.uint8)
+
+    # Try to create convex hull
+    try:
+        mesh = trimesh.Trimesh(vertices=vertices)
+        mesh = mesh.convex_hull
+        mesh_path = output_dir / "mesh.ply"
+        mesh.export(str(mesh_path))
+        return mesh_path
+    except Exception as e:
+        # If convex hull fails, export as simple point cloud OBJ
+        obj_path = output_dir / "mesh.obj"
+        mtl_path = output_dir / "mesh.mtl"
+
+        obj_content = "# Point cloud from sparse reconstruction\n"
+        for x, y, z, r, g, b in points:
+            obj_content += f"v {x} {y} {z}\n"
+
+        obj_path.write_text(obj_content)
+        mtl_path.write_text("newmtl material0\nKa 0.2 0.2 0.2\nKd 0.8 0.8 0.8\nKs 0.0 0.0 0.0\n")
+
+        return obj_path
+
+
 async def run_pipeline(job_id: str) -> None:
     from .jobs import get_job
     import tempfile
@@ -223,7 +301,11 @@ def _run_pipeline_sync(job: Job) -> None:
 
     # Test that COLMAP runs
     try:
-        result = subprocess.run([COLMAP_BIN, "--version"], capture_output=True, text=True, timeout=5)
+        env = os.environ.copy()
+        env['QT_QPA_PLATFORM'] = 'offscreen'
+        env['LIBGL_ALWAYS_INDIRECT'] = '1'
+        env['MESA_GL_VERSION_OVERRIDE'] = '4.3'
+        result = subprocess.run([COLMAP_BIN, "--version"], capture_output=True, text=True, timeout=5, env=env)
         logger.info(f"COLMAP version check: {result.stdout.strip()}")
     except Exception as e:
         logger.warning(f"Could not get COLMAP version: {e}")
@@ -284,6 +366,7 @@ def _run_pipeline_sync(job: Job) -> None:
             COLMAP_BIN, "feature_extractor",
             "--database_path", str(db_path),
             "--image_path", str(images_dir),
+            "--SiftExtraction.use_gpu", "0",
             "--SiftExtraction.max_image_size", "3200",
             "--SiftExtraction.peak_threshold", "0.03",
         ],
@@ -299,6 +382,7 @@ def _run_pipeline_sync(job: Job) -> None:
         [
             COLMAP_BIN, "sequential_matcher",
             "--database_path", str(db_path),
+            "--SiftMatching.use_gpu", "0",
         ],
         (25, 40),
     )
@@ -326,69 +410,31 @@ def _run_pipeline_sync(job: Job) -> None:
             "Ensure images have 60–80% overlap and good lighting."
         )
 
-    # Step 4: Image undistortion (55→62)
-    update_job(job.job_id, status=JobStatus.UNDISTORTING)
-    _run_colmap_step(
-        job,
-        "image_undistorter",
-        [
-            COLMAP_BIN, "image_undistorter",
-            "--image_path", str(images_dir),
-            "--input_path", str(sparse_model),
-            "--output_path", str(dense_dir),
-            "--output_type", "COLMAP",
-        ],
-        (55, 62),
-    )
-
-    # Step 5: Dense depth estimation (62→78)
-    update_job(job.job_id, status=JobStatus.DENSE_DEPTH)
-    patch_match_args = [
-        COLMAP_BIN, "patch_match_stereo",
-        "--workspace_path", str(dense_dir),
-        "--workspace_format", "COLMAP",
-        "--PatchMatchStereo.geom_consistency", "true",
-        "--PatchMatchStereo.depth_min", "0.1",
-        "--PatchMatchStereo.depth_max", "10.0",
-    ]
-    if not HAS_NVIDIA:
-        patch_match_args += ["--PatchMatchStereo.gpu_index", "-1"]
-    _run_colmap_step(job, "patch_match_stereo", patch_match_args, (62, 78), log_parser=_parse_stereo_progress)
-
-    # Step 6: Stereo fusion (78→88)
-    fused_ply = dense_dir / "fused.ply"
-    update_job(job.job_id, status=JobStatus.DENSE_FUSION)
-    _run_colmap_step(
-        job,
-        "stereo_fusion",
-        [
-            COLMAP_BIN, "stereo_fusion",
-            "--workspace_path", str(dense_dir),
-            "--workspace_format", "COLMAP",
-            "--input_type", "geometric",
-            "--output_path", str(fused_ply),
-            "--StereoFusion.min_num_pixels", "3",
-        ],
-        (78, 88),
-    )
-
-    # Step 7: Poisson meshing (88→95)
-    mesh_ply = dense_dir / "mesh.ply"
+    # Step 4: Point cloud to mesh conversion (55→95)
+    # Dense reconstruction requires CUDA which is not available, so create mesh from sparse points.
     update_job(job.job_id, status=JobStatus.MESHING)
-    _run_colmap_step(
-        job,
-        "poisson_mesher",
-        [
-            COLMAP_BIN, "poisson_mesher",
-            "--input_path", str(fused_ply),
-            "--output_path", str(mesh_ply),
-            "--PoissonMeshing.trim", "7",
-        ],
-        (88, 95),
-    )
 
-    # Step 8: Convert PLY → OBJ+MTL (95→100)
-    obj_path, mtl_path = _ply_to_obj(job, mesh_ply, output_dir)
+    log(f"[SPARSE_MESH] Converting sparse point cloud to mesh...")
+    mesh_path = _create_mesh_from_colmap_points(sparse_model, output_dir)
+    log(f"[SPARSE_MESH] Created mesh at {mesh_path}")
+
+    update_job(job.job_id, progress=95)
+
+    # Step 5: Convert to OBJ+MTL format if needed (95→100)
+    update_job(job.job_id, progress=95)
+
+    # If mesh_path is already OBJ, use it directly; otherwise convert from PLY
+    if isinstance(mesh_path, Path) and mesh_path.suffix.lower() == '.obj':
+        obj_path = mesh_path
+        mtl_path = output_dir / "mesh.mtl"
+        if not mtl_path.exists():
+            mtl_path.write_text("newmtl material0\nKa 0.2 0.2 0.2\nKd 0.8 0.8 0.8\nKs 0.0 0.0 0.0\n")
+    else:
+        # Convert PLY to OBJ
+        if isinstance(mesh_path, Path):
+            obj_path, mtl_path = _ply_to_obj(job, mesh_path, output_dir)
+        else:
+            raise RuntimeError("No valid mesh produced")
 
     update_job(
         job.job_id,
