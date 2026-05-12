@@ -1,6 +1,8 @@
 import os
 import pathlib
 
+APP_VERSION = "1.0.5"
+
 WORK_DIR = pathlib.Path(os.getenv("WORK_DIR", "/tmp/photogram_jobs"))
 COLMAP_BIN = os.getenv("COLMAP_BIN", "colmap")
 FFMPEG_BIN = os.getenv("FFMPEG_BIN", "ffmpeg")

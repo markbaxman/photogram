@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Streamin
 from fastapi.staticfiles import StaticFiles
 
 from .cleanup import cleanup_loop
-from .config import MAX_UPLOAD_MB, WORK_DIR
+from .config import APP_VERSION, MAX_UPLOAD_MB, WORK_DIR
 from .jobs import JobStatus, create_job, get_job, update_job
 from .pipeline import run_pipeline
 
@@ -39,6 +39,11 @@ app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return FileResponse(FRONTEND_DIR / "index.html")
+
+
+@app.get("/api/version")
+async def get_version():
+    return JSONResponse({"version": APP_VERSION})
 
 
 @app.post("/upload")

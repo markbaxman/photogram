@@ -12,9 +12,20 @@
   const viewBtn = document.getElementById("view-btn");
   const downloadBtn = document.getElementById("download-btn");
   const newBtn = document.getElementById("new-btn");
+  const versionEl = document.getElementById("version");
 
   let selectedFiles = [];
   let pollTimer = null;
+
+  // Fetch and display version
+  fetch("/api/version")
+    .then(r => r.json())
+    .then(data => {
+      versionEl.textContent = `v${data.version}`;
+    })
+    .catch(() => {
+      versionEl.textContent = "version error";
+    });
 
   // File selection
   fileInput.addEventListener("change", () => {
