@@ -171,30 +171,32 @@ def _ply_to_obj(job: Job, ply_path: Path, out_dir: Path) -> tuple[Path, Path]:
 
 async def run_pipeline(job_id: str) -> None:
     from .jobs import get_job
-    import sys
+    import tempfile
 
     job = get_job(job_id)
     if job is None:
         print(f"Job {job_id} not found", flush=True)
         return
 
+    log_file = Path(tempfile.gettempdir()) / f"pipeline_{job_id}.log"
     msg = f"[PIPELINE] Starting job {job_id}"
     print(msg, flush=True)
-    with open(f"/tmp/pipeline_{job_id}.log", "a") as f:
+    with open(log_file, "a") as f:
         f.write(msg + "\n")
 
     loop = asyncio.get_event_loop()
 
     try:
+        job.log_file = log_file
         await loop.run_in_executor(None, _run_pipeline_sync, job)
         msg = f"[PIPELINE] Job {job_id} completed successfully"
         print(msg, flush=True)
-        with open(f"/tmp/pipeline_{job_id}.log", "a") as f:
+        with open(log_file, "a") as f:
             f.write(msg + "\n")
     except Exception as exc:
         msg = f"[PIPELINE] Job {job_id} failed: {exc}"
         print(msg, flush=True)
-        with open(f"/tmp/pipeline_{job_id}.log", "a") as f:
+        with open(log_file, "a") as f:
             f.write(msg + "\n")
         update_job(
             job_id,
@@ -207,10 +209,13 @@ async def run_pipeline(job_id: str) -> None:
 
 def _run_pipeline_sync(job: Job) -> None:
     import shutil
+    import tempfile
+
+    log_file = getattr(job, 'log_file', Path(tempfile.gettempdir()) / f"pipeline_{job.job_id}.log")
 
     def log(msg):
         print(msg, flush=True)
-        with open(f"/tmp/pipeline_{job.job_id}.log", "a") as f:
+        with open(log_file, "a") as f:
             f.write(msg + "\n")
 
     log(f"[_run_pipeline_sync] Starting for job {job.job_id}")
