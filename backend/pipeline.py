@@ -200,11 +200,18 @@ def _run_pipeline_sync(job: Job) -> None:
     dense_dir = work_dir / "dense"
     output_dir = work_dir / "output"
 
-    # Verify COLMAP binary exists
+    # Verify COLMAP binary exists and works
     colmap_path = shutil.which(COLMAP_BIN)
     if not colmap_path:
         raise RuntimeError(f"COLMAP binary not found: {COLMAP_BIN}")
     logger.info(f"Using COLMAP binary: {colmap_path}")
+
+    # Test that COLMAP runs
+    try:
+        result = subprocess.run([COLMAP_BIN, "--version"], capture_output=True, text=True, timeout=5)
+        logger.info(f"COLMAP version check: {result.stdout.strip()}")
+    except Exception as e:
+        logger.warning(f"Could not get COLMAP version: {e}")
 
     sparse_dir.mkdir(parents=True, exist_ok=True)
     dense_dir.mkdir(parents=True, exist_ok=True)
@@ -262,6 +269,8 @@ def _run_pipeline_sync(job: Job) -> None:
             COLMAP_BIN, "feature_extractor",
             "--database_path", str(db_path),
             "--image_path", str(images_dir),
+            "--SiftExtraction.max_image_size", "3200",
+            "--SiftExtraction.peak_threshold", "0.03",
         ],
         (10, 25),
         log_parser=_parse_feature_progress,
