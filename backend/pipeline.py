@@ -189,6 +189,16 @@ def _run_pipeline_sync(job: Job) -> None:
             )
         update_job(job.job_id, progress=10, message=f"Processing {image_count} images")
 
+    # Initialize database
+    if db_path.exists():
+        db_path.unlink()
+    _run_colmap_step(
+        job,
+        "database_creator",
+        [COLMAP_BIN, "database_creator", "--database_path", str(db_path)],
+        (10, 10),
+    )
+
     # Step 1: Feature extraction (10→25)
     update_job(job.job_id, status=JobStatus.FEATURES)
     _run_colmap_step(
