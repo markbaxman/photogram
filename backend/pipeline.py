@@ -245,7 +245,6 @@ def _run_pipeline_sync(job: Job) -> None:
             COLMAP_BIN, "feature_extractor",
             "--database_path", str(db_path),
             "--image_path", str(images_dir),
-            "--SiftExtraction.use_gpu", "0",
         ],
         (10, 25),
         log_parser=_parse_feature_progress,
