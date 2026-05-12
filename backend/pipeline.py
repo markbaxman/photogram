@@ -40,26 +40,38 @@ def _run_colmap_step(
 
     line_count = 0
     output_lines = []
-    for line in process.stdout:
-        line = line.rstrip()
-        output_lines.append(line)
-        if log_parser:
-            log_parser(line, job, start_pct, end_pct)
-        else:
-            line_count += 1
-            mid = (start_pct + end_pct) // 2
-            if line_count == 1:
-                update_job(job.job_id, progress=mid)
+    try:
+        for line in process.stdout:
+            line = line.rstrip()
+            output_lines.append(line)
+            if log_parser:
+                log_parser(line, job, start_pct, end_pct)
+            else:
+                line_count += 1
+                mid = (start_pct + end_pct) // 2
+                if line_count == 1:
+                    update_job(job.job_id, progress=mid)
+    except Exception as e:
+        logger.error(f"Error reading stdout: {e}")
+        process.terminate()
 
-    process.wait()
-    if process.returncode != 0:
-        stderr = process.stderr.read() if process.stderr else ""
+    # Read any remaining stderr before wait
+    stderr_lines = []
+    try:
+        if process.stderr:
+            stderr_lines = process.stderr.readlines()
+    except Exception as e:
+        logger.error(f"Error reading stderr: {e}")
+
+    returncode = process.wait()
+    if returncode != 0:
+        stderr_text = "".join(stderr_lines[-20:]) if stderr_lines else ""
         last_output = "\n".join(output_lines[-10:]) if output_lines else "(no output)"
-        error_msg = f"{step_name} failed with exit code {process.returncode}"
-        if stderr:
-            error_msg += f"\nStderr: {stderr[-500:]}"
+        error_msg = f"{step_name} failed with exit code {returncode}"
+        if stderr_text:
+            error_msg += f"\nStderr:\n{stderr_text}"
         if last_output != "(no output)":
-            error_msg += f"\nLast output:\n{last_output}"
+            error_msg += f"\nLast stdout:\n{last_output}"
         raise RuntimeError(error_msg)
 
     update_job(job.job_id, progress=end_pct)
