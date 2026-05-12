@@ -1,5 +1,6 @@
 import asyncio
 import io
+import logging
 import mimetypes
 import zipfile
 from contextlib import asynccontextmanager
@@ -9,6 +10,8 @@ import aiofiles
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+
+logging.basicConfig(level=logging.INFO)
 
 from .cleanup import cleanup_loop
 from .config import APP_VERSION, MAX_UPLOAD_MB, WORK_DIR
@@ -39,11 +42,6 @@ app.mount("/static", StaticFiles(directory=str(FRONTEND_DIR)), name="static")
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return FileResponse(FRONTEND_DIR / "index.html")
-
-
-@app.get("/api/version")
-async def get_version():
-    return JSONResponse({"version": APP_VERSION})
 
 
 @app.post("/upload")
